@@ -93,6 +93,8 @@ class CaveExplorer(Node):
         self.marker_artifacts_.color.g = 1.0
         self.marker_artifacts_.color.b = 0.2
         self.marker_pub_ = self.create_publisher(MarkerArray, 'marker_array_artifacts', 10)
+        
+        self.count_ = 0
 
         # Remember the artifact locations
         # Array of type geometry_msgs.Point
@@ -188,6 +190,12 @@ class CaveExplorer(Node):
         # Copy the image message to a cv image
         # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
+        if (self.count_ < 10):
+            self.count_ += 1
+        else:
+            self.get_logger().info('Saving!')
+            cv2.imwrite(f'images/camera_image{random.random()}.jpeg', image)
+            self.count_ = 0
 
         # Create a grayscale version (some simple models use this)
         # image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
