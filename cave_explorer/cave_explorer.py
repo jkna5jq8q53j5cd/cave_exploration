@@ -51,6 +51,7 @@ class PlannerType(Enum):
     GO_TO_FIRST_ARTIFACT = 3
     RANDOM_WALK = 4
     RANDOM_GOAL = 5
+    GO_TO_FRONTIER = 6
     # Add more!
 
 
@@ -69,6 +70,7 @@ class CaveExplorer(Node):
         self.planner_type_ = PlannerType.ERROR
         self.reached_first_artifact_ = False
         self.returned_home_ = False
+        self.reached_frontier = False        
 
         # Marker for artifact locations
         # See https://wiki.ros.org/rviz/DisplayTypes/Marker
@@ -348,6 +350,17 @@ class CaveExplorer(Node):
         )
         self.planner_go_to_pose2d(goal_pose2d)
 
+    def planner_frontier_goal(self):
+        """Go to new frontier"""
+
+        goal_pose2d = Pose2D(
+            x = random.random()*10,
+            y = random.random()*10,
+            theta = math.pi
+        )
+        self.get_logger().info("Published new goal frontier!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        self.planner_go_to_pose2d(goal_pose2d)
+
     def planner_random_walk(self):
         """Go to a random location, which may be invalid"""
 
@@ -426,16 +439,23 @@ class CaveExplorer(Node):
         if self.planner_type_ == PlannerType.RETURN_HOME:
             self.get_logger().info('Successfully returned home!')
             self.returned_home_ = True
+        if self.planner_type_ == PlannerType.GO_TO_FRONTIER:
+            self.get_logger().info('Reached frontier')
+            self.reached_frontier = True
 
         #######################################################
         # Select the next planner to execute
         # Update this logic as you see fit!
-        if not self.reached_first_artifact_:
-            self.planner_type_ = PlannerType.GO_TO_FIRST_ARTIFACT
-        elif not self.returned_home_:
-            self.planner_type_ = PlannerType.RETURN_HOME
-        else:
-            self.planner_type_ = PlannerType.RANDOM_GOAL
+
+        if not self.reached_frontier:
+            self.planner_type_ = PlannerType.GO_TO_FRONTIER
+
+        # if not self.reached_first_artifact_:
+        #     self.planner_type_ = PlannerType.GO_TO_FIRST_ARTIFACT
+        # elif not self.returned_home_:
+        #     self.planner_type_ = PlannerType.RETURN_HOME
+        # else:
+        #     self.planner_type_ = PlannerType.RANDOM_GOAL
 
         #######################################################
         # Execute the planner by calling the relevant method
@@ -451,6 +471,8 @@ class CaveExplorer(Node):
             self.planner_random_walk()
         elif self.planner_type_ == PlannerType.RANDOM_GOAL:
             self.planner_random_goal()
+        elif self.planner_type_ == PlannerType.GO_TO_FRONTIER:
+            self.planner_frontier_goal()
         else:
             self.get_logger().error('No valid planner selected')
             self.destroy_node()
