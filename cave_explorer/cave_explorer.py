@@ -350,6 +350,12 @@ class CaveExplorer(Node):
         )
         self.planner_go_to_pose2d(goal_pose2d)
 
+
+    #
+    #
+    # Code section for planning 1
+    #
+    #
     def planner_frontier_goal(self):
         """Go to new frontier"""
 
@@ -359,6 +365,22 @@ class CaveExplorer(Node):
             theta = math.pi
         )
         self.get_logger().info("Published new goal frontier!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        self.planner_go_to_pose2d(goal_pose2d)
+
+    #
+    #
+    # Code section for planning 2
+    #
+    #
+    def planner_artifact_goal(self):
+        """Go to latest"""
+
+        goal_pose2d = Pose2D(
+            x = random.random()*10,
+            y = random.random()*10,
+            theta = math.pi
+        )
+        self.get_logger().info("Published new goal artifact!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.planner_go_to_pose2d(goal_pose2d)
 
     def planner_random_walk(self):
@@ -442,12 +464,17 @@ class CaveExplorer(Node):
         if self.planner_type_ == PlannerType.GO_TO_FRONTIER:
             self.get_logger().info('Reached frontier')
             self.reached_frontier = True
+        if self.planner_type_ == PlannerType.GO_TO_LATEST_ARTIFACT:
+            self.get_logger().info('Reached Artifact')
+            self.new_artifact_found_ = False
 
         #######################################################
         # Select the next planner to execute
         # Update this logic as you see fit!
 
-        if not self.reached_frontier:
+        if self.new_artifact_found_:
+            self.planner_type = PlannerType.GO_TO_LATEST_ARTIFACT
+        else:
             self.planner_type_ = PlannerType.GO_TO_FRONTIER
 
         # if not self.reached_first_artifact_:
@@ -473,6 +500,8 @@ class CaveExplorer(Node):
             self.planner_random_goal()
         elif self.planner_type_ == PlannerType.GO_TO_FRONTIER:
             self.planner_frontier_goal()
+        elif self.planner_type == PlannerType.GO_TO_LATEST_ARTIFACT:
+            self.planner_artifact_goal()
         else:
             self.get_logger().error('No valid planner selected')
             self.destroy_node()
