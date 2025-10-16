@@ -9,7 +9,6 @@ Panels:
         - /Odometry Path1/Topic1
         - /Odometry Path1/Shape1
         - /MarkerArray1
-        - /MarkerArray1/Status1
       Splitter Ratio: 0.5
     Tree Height: 178
   - Class: rviz_common/Selection

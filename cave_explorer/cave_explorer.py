@@ -16,6 +16,7 @@ from sensor_msgs.msg import Image
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
+from ultralytics import YOLO
 
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
@@ -119,12 +120,17 @@ class CaveExplorer(Node):
         # Subscribe to the map topic to get current bounds
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
 
-        # Prepare image processing
+        # YOLO declaration
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
-        self.declare_parameter('computer_vision_model_filename', rclpy.Parameter.Type.STRING)
-        self.computer_vision_model_ = cv2.CascadeClassifier(self.get_parameter('computer_vision_model_filename').value)
+        # self.declare_parameter('weights_path', '/home/hazza/ros2_ws/src/cave_exploration/weights/best.pt')
+        # self.declare_parameter('imgsz', 720)
+        # self.declare_parameter('conf', 0.5)
+        self.weights_path = '/home/hazza/ros2_ws/src/cave_exploration/cave_explorer/weights/best.pt'
+        self.imgsz = 720
+        self.conf = 0.5
+        self.model = YOLO(self.weights_path)
+        self.get_logger().info(f'YOLO model loaded from {self.weights_path}')
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
-
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
     
@@ -187,33 +193,32 @@ class CaveExplorer(Node):
     
         # Copy the image message to a cv image
         # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
-        image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
-
+        image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
+        detections = []
         # Create a grayscale version (some simple models use this)
         # image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
         # Retrieve the pre-trained model
-        stop_sign_model = self.computer_vision_model_
+        results = self.model.predict(source=image, imgsz=self.imgsz, conf=self.conf, verbose=False)
+        if results and len(results) > 0:
+            r = results[0]
+        for (x1, y1, x2, y2) in r.boxes.xyxy.cpu().numpy().astype(int).tolist():
+            detections.append((x1, y1, x2, y2))
 
         # Detect artifacts in the image
         # The minSize is used to avoid very small detections that are probably noise
-        detections = stop_sign_model.detectMultiScale(image, minSize=(20,20))
+        # detections = result_model.dultiScaetectMle(image, minSize=(20,20))
 
         # You can set "artifact_found_" to true to signal to "main_loop" that you have found a artifact
         # You may want to communicate more information
         # Since the "image_callback" and "main_loop" methods can run at the same time you should protect any shared variables
         # with a mutex
         # "artifact_found_" doesn't need a mutex because it's an atomic
-        num_detections = len(detections)
-
-        if num_detections > 0:
-            self.artifact_found_ = True
-        else:
-            self.artifact_found_ = False
+        self.artifact_found_ = len(detections) > 0
 
         # Draw a bounding box rectangle on the image for each detection
-        for(x, y, width, height) in detections:
-            cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+        for(x1, y1, x2, y2) in detections:
+            cv2.rectangle(image, (x1, y1), (x2, y2),(0, 255, 0), 5)
 
         # Publish the image with the detection bounding boxes
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
