@@ -130,7 +130,12 @@ class CaveExplorer(Node):
         self.conf = 0.5
         self.model = YOLO(self.weights_path)
         self.get_logger().info(f'YOLO model loaded from {self.weights_path}')
+
+        # Calculate the fov of the camera
+        self.camera_fov_ = 207.8449215
+
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
+        self.image_depth_sub_ = self.create_subscription(Image, 'camera/depth/image', self.image_depth_callback, 1)
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
     
@@ -181,7 +186,14 @@ class CaveExplorer(Node):
         # self.get_logger().warn('Map received:')
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
         # self.get_logger().warn(f'  ylim = [{self.ylim_[0]:.2f}, {self.ylim_[1]:.2f}]')
-    
+
+    def image_depth_callback(self, image_msg):
+        # self.get_logger().info('Got a depth image????????')
+        self.depth_image_ = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
+        # self.get_logger().info(str(len(self.depth_image_))+str(len(self.depth_image_[0])))
+
+
+
     def image_callback(self, image_msg):
         """
         Recieve an RGB image.
@@ -190,7 +202,6 @@ class CaveExplorer(Node):
         A simple method has been provided to begin with for detecting stop signs (which is not what we're actually looking for) 
         adapted from: https://www.geeksforgeeks.org/detect-an-object-with-opencv-python/
         """
-    
         # Copy the image message to a cv image
         # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
@@ -226,10 +237,12 @@ class CaveExplorer(Node):
 
         if self.artifact_found_:
             self.get_logger().info('Artifact found!')
-            self.localise_artifact()
+            z=self.depth_image_[int((y1+y2)/2)][int((x1+x2)/2)]
+            self.localise_artifact((x1+x2)/2,z)
 
 
     def localise_artifact(self, x, z):
+    # def localise_artifact(self):
         """
         INCOMPLETE:
         Compute the location of the artifact
@@ -250,13 +263,23 @@ class CaveExplorer(Node):
         x1 = robot_pose.x
         y1 = robot_pose.y
         x2 = z
+        y2 = (x-360)*self.camera_fov_/z
+        # c1 = 0
+        # s1 = 0
+        # x2 = robot_pose.x
+        # x1=x2
+        # y2 = robot_pose.y
+        # y1=y2
+
 
         # Compute the location of the artifact
         # This is currently INCOMPLETE
         point = Point()
-        point.x = robot_pose.x
-        point.y = robot_pose.y
+        point.x = c1*x2 - s1*y2 + x1
+        point.y = s1*x2 + c1*y2 + y1
         point.z = 1.0
+
+        self.get_logger().info(str(point))
 
         # Save it
         self.artifact_locations_.append(point)
