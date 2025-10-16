@@ -187,6 +187,7 @@ class CaveExplorer(Node):
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
         # self.get_logger().warn(f'  ylim = [{self.ylim_[0]:.2f}, {self.ylim_[1]:.2f}]')
 
+    # Function to store depth image into self.depth_image_
     def image_depth_callback(self, image_msg):
         # self.get_logger().info('Got a depth image????????')
         self.depth_image_ = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
@@ -240,7 +241,7 @@ class CaveExplorer(Node):
             z=self.depth_image_[int((y1+y2)/2)][int((x1+x2)/2)]
             self.localise_artifact((x1+x2)/2,z)
 
-
+    # Modified the localise artifact to take x, z for calculating the position of artifact in the real world in relation to the camera
     def localise_artifact(self, x, z):
     # def localise_artifact(self):
         """
@@ -258,28 +259,28 @@ class CaveExplorer(Node):
             self.get_logger().warn(f'localise_artifact: robot_pose is None.')
             return
         
+        # Some maths to transform the position of the artifact into 
+        # the world frame.
+        # THIS IS CURRENTLY WRONG as there might be some inconsistency
+        # between the unit of z and the unit of x,y,..
         c1 = math.cos(robot_pose.theta)
         s1 = math.sin(robot_pose.theta)
         x1 = robot_pose.x
         y1 = robot_pose.y
         x2 = z
         y2 = (x-360)*self.camera_fov_/z
-        # c1 = 0
-        # s1 = 0
-        # x2 = robot_pose.x
-        # x1=x2
-        # y2 = robot_pose.y
-        # y1=y2
+        x_artifact_world = c1*x2 - s1*y2 + x1
+        y_artifact_world = s1*x2 + c1*y2 + y1
 
 
         # Compute the location of the artifact
         # This is currently INCOMPLETE
         point = Point()
-        point.x = c1*x2 - s1*y2 + x1
-        point.y = s1*x2 + c1*y2 + y1
+        point.x = x_artifact_world
+        point.y = y_artifact_world
         point.z = 1.0
 
-        self.get_logger().info(str(point))
+        # self.get_logger().info(str(point))
 
         # Save it
         self.artifact_locations_.append(point)
