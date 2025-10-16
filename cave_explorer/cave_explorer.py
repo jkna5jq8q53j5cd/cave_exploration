@@ -229,7 +229,7 @@ class CaveExplorer(Node):
             self.localise_artifact()
 
 
-    def localise_artifact(self):
+    def localise_artifact(self, x, z):
         """
         INCOMPLETE:
         Compute the location of the artifact
@@ -244,6 +244,12 @@ class CaveExplorer(Node):
         if robot_pose == None:
             self.get_logger().warn(f'localise_artifact: robot_pose is None.')
             return
+        
+        c1 = math.cos(robot_pose.theta)
+        s1 = math.sin(robot_pose.theta)
+        x1 = robot_pose.x
+        y1 = robot_pose.y
+        x2 = z
 
         # Compute the location of the artifact
         # This is currently INCOMPLETE
