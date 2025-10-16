@@ -70,7 +70,8 @@ class CaveExplorer(Node):
         self.planner_type_ = PlannerType.ERROR
         self.reached_first_artifact_ = False
         self.returned_home_ = False
-        self.reached_frontier = False        
+        self.reached_frontier = False
+        self.standoff_state_ = False
 
         # Marker for artifact locations
         # See https://wiki.ros.org/rviz/DisplayTypes/Marker
@@ -99,6 +100,10 @@ class CaveExplorer(Node):
         # Remember the artifact locations
         # Array of type geometry_msgs.Point
         self.artifact_locations_ = []
+
+        # Tracking unvisited and visited artifacts
+        self.unvisited_artifacts_ = []
+        self.visited_artifacts_ = []
 
         # Initialise CvBridge
         self.cv_bridge_ = CvBridge()
@@ -249,8 +254,13 @@ class CaveExplorer(Node):
         point.y = robot_pose.y
         point.z = 1.0
 
-        # Save it
-        self.artifact_locations_.append(point)
+        if not point in self.artifact_locations_:
+            # Add point to the unvisted list if it has not been visited
+            self.unvisited_artifacts_.append(point)
+            # Save it
+            self.artifact_locations_.append(point)
+            # Change the state of the robot to standoff mode
+            self.standoff_state_ = True
 
         # Publish the markers
         self.publish_artifact_markers()
@@ -373,12 +383,17 @@ class CaveExplorer(Node):
     #
     #
     def planner_artifact_goal(self):
-        """Go to latest"""
+        """Go to latest artifact"""
 
+        # Remove point from the unvisited list
+        latest_point = self.unvisited_artifacts_[-1]
+        self.unvisited_artifacts_.pop(-1)
+
+        # Go to this point
         goal_pose2d = Pose2D(
-            x = random.random()*10,
-            y = random.random()*10,
-            theta = math.pi
+            x = latest_point.x,
+            y = latest_point.y,
+            theta = math.pi #TBC
         )
         self.get_logger().info("Published new goal artifact!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.planner_go_to_pose2d(goal_pose2d)
@@ -465,14 +480,15 @@ class CaveExplorer(Node):
             self.get_logger().info('Reached frontier')
             self.reached_frontier = True
         if self.planner_type_ == PlannerType.GO_TO_LATEST_ARTIFACT:
-            self.get_logger().info('Reached Artifact')
-            self.new_artifact_found_ = False
+            if (self.unvisited_artifacts_ == []):
+                self.get_logger().info('Reached Artifact')
+                self.standoff_state_ = False
 
         #######################################################
         # Select the next planner to execute
         # Update this logic as you see fit!
 
-        if self.new_artifact_found_:
+        if self.standoff_state_:
             self.planner_type = PlannerType.GO_TO_LATEST_ARTIFACT
         else:
             self.planner_type_ = PlannerType.GO_TO_FRONTIER
