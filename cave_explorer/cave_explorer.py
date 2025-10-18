@@ -135,6 +135,9 @@ class CaveExplorer(Node):
         # Calculate the f of the camera
         self.camera_fov_ = 207.8449215
 
+        # Clump all points within this radius into 1 point
+        self.clump_radius_ = 2
+
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
         self.image_depth_sub_ = self.create_subscription(Image, 'camera/depth/image', self.image_depth_callback, 1)
         # Timer for main loop
@@ -241,6 +244,17 @@ class CaveExplorer(Node):
             if z != float('inf'):
                 self.localise_artifact((x1+x2)/2,z)
 
+    def check_if_in(self,point,arr):
+        if len(arr) == 0:
+            return False
+        for i in arr:
+            dist = math.sqrt((i.x-point.x)**2+(i.y-point.y)**2)
+            if dist < self.clump_radius_:
+                return True
+        return False
+
+
+
     # Modified the localise artifact to take x, z for calculating the position of artifact in the real world in relation to the camera
     def localise_artifact(self, x, z):
     # def localise_artifact(self):
@@ -281,6 +295,9 @@ class CaveExplorer(Node):
         point.x = x_artifact_world
         point.y = y_artifact_world
         point.z = 1.0
+
+        if self.check_if_in(point, self.artifact_locations_):
+            return
 
         # Save it
         self.artifact_locations_.append(point)
