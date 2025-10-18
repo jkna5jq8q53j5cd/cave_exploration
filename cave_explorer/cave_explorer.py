@@ -16,6 +16,7 @@ from sensor_msgs.msg import Image
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
+from tf2_geometry_msgs import PoseStamped as tf2_ps
 from ultralytics import YOLO
 
 from visualization_msgs.msg import Marker
@@ -131,7 +132,7 @@ class CaveExplorer(Node):
         self.model = YOLO(self.weights_path)
         self.get_logger().info(f'YOLO model loaded from {self.weights_path}')
 
-        # Calculate the fov of the camera
+        # Calculate the f of the camera
         self.camera_fov_ = 207.8449215
 
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
@@ -165,7 +166,7 @@ class CaveExplorer(Node):
         else: 
             pose.theta = wrap_angle(-2. * math.acos(qw))
 
-        self.get_logger().warn(f'Pose: {pose}')
+        # self.get_logger().warn(f'Pose: {pose}')
 
         return pose
 
@@ -189,9 +190,7 @@ class CaveExplorer(Node):
 
     # Function to store depth image into self.depth_image_
     def image_depth_callback(self, image_msg):
-        # self.get_logger().info('Got a depth image????????')
         self.depth_image_ = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
-        # self.get_logger().info(str(len(self.depth_image_))+str(len(self.depth_image_[0])))
 
 
 
@@ -238,8 +237,9 @@ class CaveExplorer(Node):
 
         if self.artifact_found_:
             self.get_logger().info('Artifact found!')
-            z=self.depth_image_[int((y1+y2)/2)][int((x1+x2)/2)]
-            self.localise_artifact((x1+x2)/2,z)
+            z = self.depth_image_[int((y1+y2)/2)][int((x1+x2)/2)]
+            if z != float('inf'):
+                self.localise_artifact((x1+x2)/2,z)
 
     # Modified the localise artifact to take x, z for calculating the position of artifact in the real world in relation to the camera
     def localise_artifact(self, x, z):
@@ -251,7 +251,6 @@ class CaveExplorer(Node):
         This version just uses the robot location rather than the artifact location
         You can find other examples of using RViz markers in the previous assignments template code
         """
-
         # Current location of the robot
         robot_pose = self.get_pose_2d()
 
@@ -263,15 +262,18 @@ class CaveExplorer(Node):
         # the world frame.
         # THIS IS CURRENTLY WRONG as there might be some inconsistency
         # between the unit of z and the unit of x,y,..
-        c1 = math.cos(robot_pose.theta)
-        s1 = math.sin(robot_pose.theta)
-        x1 = robot_pose.x
-        y1 = robot_pose.y
+        
         x2 = z
-        y2 = (x-360)*self.camera_fov_/z
-        x_artifact_world = c1*x2 - s1*y2 + x1
-        y_artifact_world = s1*x2 + c1*y2 + y1
+        y2 = -(x-360)*z/self.camera_fov_
+        camera_link_optical = tf2_ps()
+        camera_link_optical.pose.position.x = float(x2)
+        camera_link_optical.pose.position.y = float(y2)
+        camera_link_optical.header.frame_id = 'camera_link'
 
+        t = self.tf_buffer.transform(camera_link_optical,'map')
+
+        x_artifact_world = t.pose.position.x
+        y_artifact_world = t.pose.position.y
 
         # Compute the location of the artifact
         # This is currently INCOMPLETE
@@ -279,8 +281,6 @@ class CaveExplorer(Node):
         point.x = x_artifact_world
         point.y = y_artifact_world
         point.z = 1.0
-
-        # self.get_logger().info(str(point))
 
         # Save it
         self.artifact_locations_.append(point)
