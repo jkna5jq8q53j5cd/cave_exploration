@@ -16,6 +16,8 @@ from sensor_msgs.msg import Image
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
+from tf2_geometry_msgs import PoseStamped as tf2_ps
+from ultralytics import YOLO
 
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
@@ -126,12 +128,25 @@ class CaveExplorer(Node):
         # Subscribe to the map topic to get current bounds
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
 
-        # Prepare image processing
+        # YOLO declaration
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
-        self.declare_parameter('computer_vision_model_filename', rclpy.Parameter.Type.STRING)
-        self.computer_vision_model_ = cv2.CascadeClassifier(self.get_parameter('computer_vision_model_filename').value)
-        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
+        # self.declare_parameter('weights_path', '/home/hazza/ros2_ws/src/cave_exploration/weights/best.pt')
+        # self.declare_parameter('imgsz', 720)
+        # self.declare_parameter('conf', 0.5)
+        self.weights_path = '/home/hazza/ros2_ws/src/cave_exploration/cave_explorer/weights/best.pt'
+        self.imgsz = 720
+        self.conf = 0.5
+        self.model = YOLO(self.weights_path)
+        self.get_logger().info(f'YOLO model loaded from {self.weights_path}')
 
+        # Calculate the f of the camera
+        self.camera_fov_ = 207.8449215
+
+        # Clump all points within this radius into 1 point
+        self.clump_radius_ = 3
+
+        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
+        self.image_depth_sub_ = self.create_subscription(Image, 'camera/depth/image', self.image_depth_callback, 1)
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
     
@@ -161,7 +176,7 @@ class CaveExplorer(Node):
         else: 
             pose.theta = wrap_angle(-2. * math.acos(qw))
 
-        self.get_logger().warn(f'Pose: {pose}')
+        # self.get_logger().warn(f'Pose: {pose}')
 
         return pose
 
@@ -182,7 +197,13 @@ class CaveExplorer(Node):
         # self.get_logger().warn('Map received:')
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
         # self.get_logger().warn(f'  ylim = [{self.ylim_[0]:.2f}, {self.ylim_[1]:.2f}]')
-    
+
+    # Function to store depth image into self.depth_image_
+    def image_depth_callback(self, image_msg):
+        self.depth_image_ = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
+
+
+
     def image_callback(self, image_msg):
         """
         Recieve an RGB image.
@@ -191,36 +212,34 @@ class CaveExplorer(Node):
         A simple method has been provided to begin with for detecting stop signs (which is not what we're actually looking for) 
         adapted from: https://www.geeksforgeeks.org/detect-an-object-with-opencv-python/
         """
-    
         # Copy the image message to a cv image
         # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
-        image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
-
+        image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
+        detections = []
         # Create a grayscale version (some simple models use this)
         # image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
         # Retrieve the pre-trained model
-        stop_sign_model = self.computer_vision_model_
+        results = self.model.predict(source=image, imgsz=self.imgsz, conf=self.conf, verbose=False)
+        if results and len(results) > 0:
+            r = results[0]
+        for (x1, y1, x2, y2) in r.boxes.xyxy.cpu().numpy().astype(int).tolist():
+            detections.append((x1, y1, x2, y2))
 
         # Detect artifacts in the image
         # The minSize is used to avoid very small detections that are probably noise
-        detections = stop_sign_model.detectMultiScale(image, minSize=(20,20))
+        # detections = result_model.dultiScaetectMle(image, minSize=(20,20))
 
         # You can set "artifact_found_" to true to signal to "main_loop" that you have found a artifact
         # You may want to communicate more information
         # Since the "image_callback" and "main_loop" methods can run at the same time you should protect any shared variables
         # with a mutex
         # "artifact_found_" doesn't need a mutex because it's an atomic
-        num_detections = len(detections)
-
-        if num_detections > 0:
-            self.artifact_found_ = True
-        else:
-            self.artifact_found_ = False
+        self.artifact_found_ = len(detections) > 0
 
         # Draw a bounding box rectangle on the image for each detection
-        for(x, y, width, height) in detections:
-            cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+        for(x1, y1, x2, y2) in detections:
+            cv2.rectangle(image, (x1, y1), (x2, y2),(0, 255, 0), 5)
 
         # Publish the image with the detection bounding boxes
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
@@ -228,10 +247,24 @@ class CaveExplorer(Node):
 
         if self.artifact_found_:
             self.get_logger().info('Artifact found!')
-            self.localise_artifact()
+            z = self.depth_image_[int((y1+y2)/2)][int((x1+x2)/2)]
+            if z != float('inf'):
+                self.localise_artifact((x1+x2)/2,z)
+
+    def check_if_in(self,point,arr):
+        if len(arr) == 0:
+            return False
+        for i in arr:
+            dist = math.sqrt((i.x-point.x)**2+(i.y-point.y)**2)
+            if dist < self.clump_radius_:
+                return True
+        return False
 
 
-    def localise_artifact(self):
+
+    # Modified the localise artifact to take x, z for calculating the position of artifact in the real world in relation to the camera
+    def localise_artifact(self, x, z):
+    # def localise_artifact(self):
         """
         INCOMPLETE:
         Compute the location of the artifact
@@ -239,21 +272,42 @@ class CaveExplorer(Node):
         This version just uses the robot location rather than the artifact location
         You can find other examples of using RViz markers in the previous assignments template code
         """
-
         # Current location of the robot
         robot_pose = self.get_pose_2d()
 
         if robot_pose == None:
             self.get_logger().warn(f'localise_artifact: robot_pose is None.')
             return
+        
+        # Some maths to transform the position of the artifact into 
+        # the world frame.
+        # THIS IS CURRENTLY WRONG as there might be some inconsistency
+        # between the unit of z and the unit of x,y,..
+        
+        x2 = z
+        y2 = -(x-360)*z/self.camera_fov_
+        camera_link_optical = tf2_ps()
+        camera_link_optical.pose.position.x = float(x2)
+        camera_link_optical.pose.position.y = float(y2)
+        camera_link_optical.header.frame_id = 'camera_link'
+
+        t = self.tf_buffer.transform(camera_link_optical,'map')
+
+        x_artifact_world = t.pose.position.x
+        y_artifact_world = t.pose.position.y
 
         # Compute the location of the artifact
         # This is currently INCOMPLETE
         point = Point()
-        point.x = robot_pose.x
-        point.y = robot_pose.y
+        point.x = x_artifact_world
+        point.y = y_artifact_world
         point.z = 1.0
 
+        if self.check_if_in(point, self.artifact_locations_):
+            return
+
+        # Save it
+        self.artifact_locations_.append(point)
         if not point in self.artifact_locations_:
             # Add point to the unvisted list if it has not been visited
             self.unvisited_artifacts_.append(point)
