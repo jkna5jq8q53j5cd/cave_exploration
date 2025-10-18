@@ -136,7 +136,7 @@ class CaveExplorer(Node):
         self.camera_fov_ = 207.8449215
 
         # Clump all points within this radius into 1 point
-        self.clump_radius_ = 2
+        self.clump_radius_ = 3
 
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
         self.image_depth_sub_ = self.create_subscription(Image, 'camera/depth/image', self.image_depth_callback, 1)
