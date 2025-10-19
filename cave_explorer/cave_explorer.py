@@ -48,15 +48,25 @@ def pose2d_to_pose(pose_2d):
 
 def motion_blur(img, severity):
     kernel_size = severity*5
-    kernel_h = np.zeros(severity)
-    kernel_h[int((kernel_size)-1)/2,:] = np.ones(kernel_size)
+    kernel_h = np.zeros((kernel_size,kernel_size))
+    kernel_h[int(((kernel_size)-1)/2),:] = np.ones(kernel_size)
     kernel_h /= kernel_size
     horizontal_mb = cv2.filter2D(img, -1, kernel_h)
     return horizontal_mb
 
 
 def add_dust(img, severity):
-    indices = np.random.randint(0,len(img),[severity*1000,2])
+    indices_x = np.random.randint(1,len(img)-1,size=severity*1000)
+    indices_y = np.random.randint(1,len(img[0])-1,size=severity*1000)
+    for i in range(severity*1000):
+        x=random.choice(indices_x)
+        y=random.choice(indices_y)
+        img[x][y] = [113,126,160]
+        img[x+1][y] = [113,126,160]
+        img[x][y+1] = [113,126,160]
+        img[x-1][y] = [113,126,160]
+        img[x][y-1] = [113,126,160]
+    return img
 
 
 
@@ -271,6 +281,8 @@ class CaveExplorer(Node):
             return
 
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
+        image = add_dust(image,3)
+        image = motion_blur(image,3)
         # self.get_logger().info(str(image))
 
         detections = []
