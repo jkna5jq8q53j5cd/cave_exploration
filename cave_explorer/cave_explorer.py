@@ -46,6 +46,19 @@ def pose2d_to_pose(pose_2d):
 
     return pose
 
+def motion_blur(img, severity):
+    kernel_size = severity*5
+    kernel_h = np.zeros(severity)
+    kernel_h[int((kernel_size)-1)/2,:] = np.ones(kernel_size)
+    kernel_h /= kernel_size
+    horizontal_mb = cv2.filter2D(img, -1, kernel_h)
+    return horizontal_mb
+
+
+def add_dust(img, severity):
+    indices = np.random.randint(0,len(img),[severity*1000,2])
+
+
 
 class PlannerType(Enum):
     ERROR = 0
@@ -258,6 +271,8 @@ class CaveExplorer(Node):
             return
 
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
+        # self.get_logger().info(str(image))
+
         detections = []
         # Create a grayscale version (some simple models use this)
         # image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
