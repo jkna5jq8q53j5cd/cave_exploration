@@ -107,7 +107,6 @@ class CaveExplorer(Node):
 
         # Tracking unvisited and visited artifacts
         self.unvisited_artifacts_ = []
-        self.visited_artifacts_ = []
 
         # Initialise CvBridge
         self.cv_bridge_ = CvBridge()
@@ -147,8 +146,24 @@ class CaveExplorer(Node):
         # Clump all points within this radius into 1 point
         self.clump_radius_ = 3
 
+        # Initialize frontier
+        self.frontiers = []
+
+        # Initialize depth image
+        self.depth_image_ = []
+
+        # Initialize standoff distance
+        self.standoff_distance_ = 3
+
+        # Initialize goal handle status
+        self.goal_exists_ = False
+
+        # Initialize the timer variable
+        self.timer_count_ = 0
+
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
         self.image_depth_sub_ = self.create_subscription(Image, 'camera/depth/image', self.image_depth_callback, 1)
+
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
     
@@ -189,6 +204,7 @@ class CaveExplorer(Node):
         map_origin = [map_msg.info.origin.position.x, 
                       map_msg.info.origin.position.y]
         map_resolution = map_msg.info.resolution
+        self.resolution = map_resolution
         map_height = map_msg.info.height
         map_width = map_msg.info.width
 
@@ -196,23 +212,35 @@ class CaveExplorer(Node):
         self.xlim_ = [map_origin[0], map_origin[0]+map_width*map_resolution]
         self.ylim_ = [map_origin[1], map_origin[1]+map_height*map_resolution]
 
-        self.current_map_ = (np.array(map_msg.data).reshape(map_height,map_width).T)*150+150
-        cv2.imwrite('map.jpg',self.current_map_)
-        # self.get_logger().info(str(self.current_map_)+' '+str(len(self.current_map_)))
-        
-        self.get_logger().info(str(type(self.current_map_)))
+        self.current_map_ = (np.array(map_msg.data).reshape(map_height,map_width))*150+150
+        gradient_magnitude = cv2.Laplacian(self.current_map_, cv2.CV_64F)
+        gradient_magnitude = cv2.convertScaleAbs(gradient_magnitude)
+
+        self.frontiers = []
+        for i in range(map_height):
+            for j in range(map_width):
+                if 140 < gradient_magnitude[i][j] < 170:
+                    self.frontiers.append((i,j))
 
         # self.get_logger().warn('Map received:')
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
         # self.get_logger().warn(f'  ylim = [{self.ylim_[0]:.2f}, {self.ylim_[1]:.2f}]')
-        self.get_logger().warn(f'  xlim = [{map_width}]')
-        self.get_logger().warn(f'  ylim = [{map_height}]')
-
 
     # Function to store depth image into self.depth_image_
     def image_depth_callback(self, image_msg):
         self.depth_image_ = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
 
+    def straight_line(self, goal, dist):
+        if goal == None:
+            return False
+        current_pose = self.get_pose_2d()
+        total_dist = math.sqrt((current_pose.x-goal.x)**2+(current_pose.y-goal.y)**2)
+        res = Pose2D(x = current_pose.x + (goal.x - current_pose.x)*(total_dist-dist)/total_dist,
+                    y = current_pose.y + (goal.y - current_pose.y)*(total_dist-dist)/total_dist,
+                    theta = math.atan2((goal.y-current_pose.y),(goal.x-current_pose.x))
+        )
+        self.get_logger().info(str(res))
+        return res
 
 
     def image_callback(self, image_msg):
@@ -225,6 +253,10 @@ class CaveExplorer(Node):
         """
         # Copy the image message to a cv image
         # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
+
+        if len(self.depth_image_) == 0:
+            return
+
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
         detections = []
         # Create a grayscale version (some simple models use this)
@@ -328,7 +360,8 @@ class CaveExplorer(Node):
         # Abort current goal if robot is not in standoff mode
         if self.planner_type_ != PlannerType.GO_TO_LATEST_ARTIFACT:
             self.get_logger().info('Stopping exploration')
-            # self.planner_go_to_pose2d(robot_pose)
+            if self.goal_exists_:
+                self.nav2_action_client_._cancel_goal_async(self.goal_handle_)
 
         # Publish the markers
         self.publish_artifact_markers()
@@ -374,6 +407,8 @@ class CaveExplorer(Node):
         """The requested goal pose has been sent to the action server"""
 
         goal_handle = future.result()
+        self.goal_handle_ = goal_handle
+        self.goal_exists_ = True
         if not goal_handle.accepted:
             self.get_logger().error('Goal rejected')
             return
@@ -437,36 +472,34 @@ class CaveExplorer(Node):
     def planner_frontier_goal(self):
         """Go to new frontier"""
 
-        # goal_pose2d = Pose2D(
-        #     x = random.random()*10,
-        #     y = random.random()*10,
-        #     theta = math.pi
-        # )
+        random_frontier = random.choice(self.frontiers)
+        goal_pose2d = Pose2D(
+            x = random_frontier[1]*self.resolution,
+            y = random_frontier[0]*self.resolution,
+            theta = math.pi
+        )
         self.get_logger().info("Published new goal frontier!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        # self.planner_go_to_pose2d(goal_pose2d)
-        self.planner_random_walk()
+        self.planner_go_to_pose2d(goal_pose2d)
 
-    #
-    #
-    # Code section for planning 2
-    #
-    #
+    # Function that publishes the artifact goal
     def planner_artifact_goal(self):
         """Go to latest artifact"""
 
         # Remove point from the unvisited list
-        latest_point = self.unvisited_artifacts_[-1]
-        self.unvisited_artifacts_.pop(-1)
-
+        latest_point = self.unvisited_artifacts_[0]
+        self.unvisited_artifacts_.pop(0)
+        
+        
         # Go to this point
         goal_pose2d = Pose2D(
             x = latest_point.x,
             y = latest_point.y,
             theta = math.pi #TBC
         )
+        goal_pose2d = self.straight_line(goal_pose2d,self.standoff_distance_)
         self.get_logger().info("Published new goal artifact!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        self.get_logger().info(f"current pose is: {self.get_pose_2d()}")
         self.planner_go_to_pose2d(goal_pose2d)
+
 
     def planner_random_walk(self):
         """Go to a random location, which may be invalid"""
@@ -529,29 +562,36 @@ class CaveExplorer(Node):
                 rclpy.time.Time()):
             self.get_logger().warn('Waiting for transform... Have you launched a SLAM node?')
             return
-
+        if not self.tf_buffer.can_transform(
+                'camera_link',
+                'map',
+                rclpy.time.Time()):
+            self.get_logger().warn('Waiting for transform... Have you launched a SLAM node?')
+            return
+        
+        if (len(self.frontiers) == 0):
+            return
+        
         #######################################################
         # Update flags related to the progress of the current planner
-
-        self.get_logger().info(f'are we ready? {self.ready_for_next_goal_}')
 
         # Check if previous goal still running
         if not self.ready_for_next_goal_:
             # self.get_logger().info(f'Previous goal still running')
             return
+        
+        if (self.timer_count_ < 40) and (self.planner_type_ == PlannerType.GO_TO_LATEST_ARTIFACT):
+                self.get_logger().info('Inspecting artifact.. Please wait..')
+                self.timer_count_ += 1
+                return
 
         self.ready_for_next_goal_ = False
 
-        if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
-            self.get_logger().info('Successfully reached first artifact!')
-            self.reached_first_artifact_ = True
-        if self.planner_type_ == PlannerType.RETURN_HOME:
-            self.get_logger().info('Successfully returned home!')
-            self.returned_home_ = True
         if self.planner_type_ == PlannerType.GO_TO_FRONTIER:
             self.get_logger().info('Reached frontier')
             self.reached_frontier = True
         if self.planner_type_ == PlannerType.GO_TO_LATEST_ARTIFACT:
+            self.timer_count_ = 0
             if (self.unvisited_artifacts_ == []):
                 self.get_logger().info('Reached Artifact')
                 self.standoff_state_ = False
@@ -559,20 +599,13 @@ class CaveExplorer(Node):
         #######################################################
         # Select the next planner to execute
         # Update this logic as you see fit!
-        self.get_logger().info(f'{self.planner_type_}')
         if self.standoff_state_:
-            self.get_logger().info('Switched state to Standoff')
+            self.get_logger().info('Going to inspect an artifact')
             self.planner_type_ = PlannerType.GO_TO_LATEST_ARTIFACT
         else:
             self.get_logger().info('Going to next frontier')
             self.planner_type_ = PlannerType.GO_TO_FRONTIER
 
-        # if not self.reached_first_artifact_:
-        #     self.planner_type_ = PlannerType.GO_TO_FIRST_ARTIFACT
-        # elif not self.returned_home_:
-        #     self.planner_type_ = PlannerType.RETURN_HOME
-        # else:
-        #     self.planner_type_ = PlannerType.RANDOM_GOAL
 
         #######################################################
         # Execute the planner by calling the relevant method
