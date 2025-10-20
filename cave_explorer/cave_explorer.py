@@ -277,6 +277,34 @@ class CaveExplorer(Node):
         marker.color.a = 0.5
         marker.color.r = 1.0
         self.transform_map_.publish(marker)
+        
+        # jac = cv2.Laplacian(distance_transform_map, cv2.CV_64F)
+        # jac = cv2.convertScaleAbs(jac)
+        # # x,y = np.unravel_index(jac.argmax(), jac.shape)
+        # x,y = np.where((jac == jac.max()))
+        # # self.get_logger().info(f'{x}, {jac.max()}')
+
+        # min_path = 999
+        # for i in range(len(x)):
+        #     if distance_transform_map[x[i]][y[i]] < min_path:
+        #         min_path = distance_transform_map[x[i]][y[i]]
+        #         x_min = x[i]
+        #         y_min = y[i]
+        # self.get_logger().info(f'{x_min}, {y_min}')
+        
+        # marker = Marker()
+        # marker.header.frame_id = "map"
+        # # marker.header.stamp = rclpy.time
+        # marker.type = 3
+        # marker.scale.x = 1.0
+        # marker.scale.y = 1.0
+        # marker.scale.z = 0.01
+        # marker.pose.position.x = (y_min*self.resolution)+self.x_origin
+        # marker.pose.position.y = (x_min*self.resolution)+self.y_origin
+        # marker.color.a = 1.0
+        # marker.color.b = 1.0
+        # self.transform_map_.publish(marker)
+    
         # with open('x.txt', 'w') as handle_:
         #     handle_.write(str(jac))
         # cv2.imwrite('distance_transform_jacobian.jpg', jac)
