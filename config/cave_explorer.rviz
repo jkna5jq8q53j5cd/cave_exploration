@@ -577,6 +577,19 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /marker_array_artifacts
       Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Marker
+      Namespaces:
+        "": true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /clearing
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -632,7 +645,7 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 13.284460067749023
+      Scale: 8.015548706054688
       Target Frame: map
       Value: TopDownOrtho (rviz_default_plugins)
       X: 20.150609970092773
