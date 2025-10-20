@@ -157,7 +157,7 @@ class CaveExplorer(Node):
         # self.declare_parameter('weights_path', '/home/hazza/ros2_ws/src/cave_exploration/weights/best.pt')
         # self.declare_parameter('imgsz', 720)
         # self.declare_parameter('conf', 0.5)
-        self.weights_path = '/home/hazza/ros2_ws/src/cave_exploration/cave_explorer/weights/best.pt'
+        self.weights_path = '/home/hazza/ros2_ws/src/cave_exploration/cave_explorer/weights/best_degradation.pt'
         self.imgsz = 720
         self.conf = 0.5
         self.model = YOLO(self.weights_path)
