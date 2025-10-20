@@ -157,7 +157,7 @@ class CaveExplorer(Node):
         # self.declare_parameter('weights_path', '/home/hazza/ros2_ws/src/cave_exploration/weights/best.pt')
         # self.declare_parameter('imgsz', 720)
         # self.declare_parameter('conf', 0.5)
-        self.weights_path = '/home/hazza/ros2_ws/src/cave_exploration/cave_explorer/weights/best_degradation.pt'
+        self.weights_path = '/home/hazza/ros2_ws/src/cave_exploration/cave_explorer/weights/best_degradation_1.pt'
         self.imgsz = 720
         self.conf = 0.5
         self.model = YOLO(self.weights_path)
@@ -296,6 +296,7 @@ class CaveExplorer(Node):
         for (x1, y1, x2, y2) in r.boxes.xyxy.cpu().numpy().astype(int).tolist():
             detections.append((x1, y1, x2, y2))
 
+        labels = r.boxes.cls.tolist()
         # Detect artifacts in the image
         # The minSize is used to avoid very small detections that are probably noise
         # detections = result_model.dultiScaetectMle(image, minSize=(20,20))
@@ -307,9 +308,12 @@ class CaveExplorer(Node):
         # "artifact_found_" doesn't need a mutex because it's an atomic
         self.artifact_found_ = len(detections) > 0
 
+        index_ = 0
         # Draw a bounding box rectangle on the image for each detection
         for(x1, y1, x2, y2) in detections:
             cv2.rectangle(image, (x1, y1), (x2, y2),(0, 255, 0), 5)
+            cv2.putText(image,str(r.names[labels[index_]]) , (x1, y1-5), cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 0), 3, cv2.LINE_AA)
+            index_+=1
 
         # Publish the image with the detection bounding boxes
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
