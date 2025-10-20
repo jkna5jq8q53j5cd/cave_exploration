@@ -158,7 +158,8 @@ class CaveExplorer(Node):
         # self.declare_parameter('imgsz', 720)
         # self.declare_parameter('conf', 0.5)
         self.weights_path = '/home/hazza/ros2_ws/src/cave_exploration/cave_explorer/weights/best_degradation_1.pt'
-        self.imgsz = 720
+        # self.imgsz = 720
+        self.imgsz = 736
         self.conf = 0.5
         self.model = YOLO(self.weights_path)
         self.get_logger().info(f'YOLO model loaded from {self.weights_path}')
@@ -276,10 +277,6 @@ class CaveExplorer(Node):
         marker.color.a = 0.5
         marker.color.r = 1.0
         self.transform_map_.publish(marker)
-        
-
-        # jac = cv2.Laplacian(distance_transform_map, cv2.CV_64F)
-        # jac = cv2.convertScaleAbs(jac)
         # with open('x.txt', 'w') as handle_:
         #     handle_.write(str(jac))
         # cv2.imwrite('distance_transform_jacobian.jpg', jac)
