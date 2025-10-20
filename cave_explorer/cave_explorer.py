@@ -219,6 +219,46 @@ class CaveExplorer(Node):
         # self.get_logger().warn(f'Pose: {pose}')
 
         return pose
+    
+    def do_distance_transform(self, map, rows, cols):
+
+        distance_transform_map = np.full((rows, cols), 0, dtype=np.uint8)
+        map[map==-1] = 100
+
+        # First pass
+        for i in range(1,rows-1):
+            for j in range(1,cols-1):
+                # Assign 0 to occupied cell
+                if (map[i,j]==100):
+                    distance_transform_map[i,j] = 0
+                else:
+                    above = (distance_transform_map[i,j-1]+1)
+                    distance_transform_map[i,j] = (distance_transform_map[i-1,j]+1)
+                    if (above < distance_transform_map[i,j]):
+                        distance_transform_map[i,j] = above
+
+        # Second pass
+        for i in reversed(range(1,rows-1)):
+            for j in reversed(range(1,cols-1)):
+                # Assign 0 to occupied cell
+                if (map[i,j]==100):
+                    distance_transform_map[i,j] = 0
+                else:
+                    below = (distance_transform_map[i,j+1]+1)
+                    right = (distance_transform_map[i+1,j]+1)
+                    # If either the distance below or to the right of the current cell is smaller than the current cell's distance
+                    if not ((distance_transform_map[i,j] < below) and (distance_transform_map[i,j] < right)) :
+                        if (below > right):
+                            distance_transform_map[i,j] = right
+                        else:
+                            distance_transform_map[i,j] = below
+
+        self.distance_transform_map_ = distance_transform_map
+        self.get_logger().info(f'{distance_transform_map.min()}, {distance_transform_map.max()}')
+        cv2.imwrite('distance_transform.jpg', distance_transform_map)
+        # jac = cv2.Laplacian(distance_transform_map, cv2.CV_64F)
+        # jac = cv2.convertScaleAbs(jac)*10
+        # cv2.imwrite('distance_transform_jacobian.jpg', jac)
 
     def map_callback(self, map_msg: OccupancyGrid):
         """New map received, so update x and y limits"""
@@ -235,7 +275,10 @@ class CaveExplorer(Node):
         self.xlim_ = [map_origin[0], map_origin[0]+map_width*map_resolution]
         self.ylim_ = [map_origin[1], map_origin[1]+map_height*map_resolution]
 
-        self.current_map_ = (np.array(map_msg.data).reshape(map_height,map_width))*150+150
+        reshaped_map = (np.array(map_msg.data).reshape(map_height,map_width))
+        self.do_distance_transform(reshaped_map,map_height,map_width)
+        
+        self.current_map_ = reshaped_map*150+150
         gradient_magnitude = cv2.Laplacian(self.current_map_, cv2.CV_64F)
         gradient_magnitude = cv2.convertScaleAbs(gradient_magnitude)
 
