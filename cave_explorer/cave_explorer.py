@@ -184,6 +184,11 @@ class CaveExplorer(Node):
         # Initialize the timer variable
         self.timer_count_ = 0
 
+        # Initialize the transform count variable
+        self.transform_count_ = 0
+
+        self.transform_map_ = self.create_publisher(Marker, 'clearing', 1)
+
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
         self.image_depth_sub_ = self.create_subscription(Image, 'camera/depth/image', self.image_depth_callback, 1)
 
@@ -254,10 +259,29 @@ class CaveExplorer(Node):
                             distance_transform_map[i,j] = below
 
         self.distance_transform_map_ = distance_transform_map
-        self.get_logger().info(f'{distance_transform_map.min()}, {distance_transform_map.max()}')
-        cv2.imwrite('distance_transform.jpg', distance_transform_map)
+        
+        x,y = np.unravel_index(distance_transform_map.argmax(), distance_transform_map.shape)
+        
+        radius = distance_transform_map[x][y]
+
+        marker = Marker()
+        marker.header.frame_id = "map"
+        # marker.header.stamp = rclpy.time
+        marker.type = 3
+        marker.scale.x = float(radius*self.resolution*2)
+        marker.scale.y = float(radius*self.resolution*2)
+        marker.scale.z = 0.01
+        marker.pose.position.x = (y*self.resolution)+self.x_origin
+        marker.pose.position.y = (x*self.resolution)+self.y_origin
+        marker.color.a = 0.5
+        marker.color.r = 1.0
+        self.transform_map_.publish(marker)
+        
+
         # jac = cv2.Laplacian(distance_transform_map, cv2.CV_64F)
-        # jac = cv2.convertScaleAbs(jac)*10
+        # jac = cv2.convertScaleAbs(jac)
+        # with open('x.txt', 'w') as handle_:
+        #     handle_.write(str(jac))
         # cv2.imwrite('distance_transform_jacobian.jpg', jac)
 
     def map_callback(self, map_msg: OccupancyGrid):
@@ -276,7 +300,10 @@ class CaveExplorer(Node):
         self.ylim_ = [map_origin[1], map_origin[1]+map_height*map_resolution]
 
         reshaped_map = (np.array(map_msg.data).reshape(map_height,map_width))
-        self.do_distance_transform(reshaped_map,map_height,map_width)
+
+        self.x_origin = map_origin[0]
+        self.y_origin = map_origin[1]
+        
         
         self.current_map_ = reshaped_map*150+150
         gradient_magnitude = cv2.Laplacian(self.current_map_, cv2.CV_64F)
@@ -288,6 +315,12 @@ class CaveExplorer(Node):
                 if 140 < gradient_magnitude[i][j] < 170:
                     self.frontiers.append((i,j))
 
+        if self.transform_count_<10:
+            self.transform_count_ += 1
+            return
+        else:
+            self.do_distance_transform(reshaped_map,map_height,map_width)
+            self.transform_count_ = 0
         # self.get_logger().warn('Map received:')
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
         # self.get_logger().warn(f'  ylim = [{self.ylim_[0]:.2f}, {self.ylim_[1]:.2f}]')
