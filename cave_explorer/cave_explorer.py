@@ -495,58 +495,6 @@ class CaveExplorer(Node):
         return False, -1
 
 
-    def is_occluded(self, p1, p2, threshold=90):
-        """
-        Find if two points can be joined or if there's an obstacle in between
-        Draws a line from p1 to p2
-        Stops at the first pixel that is a "hit", i.e. above the threshold
-        Returns the pixel coordinates for the first hit
-        """
-
-
-        if len(self.map_reshaped_)==0:
-            return
-
-        img = self.map_reshaped_
-        # Extract the vector
-        x1 = p1.x
-        y1 = p1.y
-        x2 = p2.x
-        y2 = p2.y
-
-        if (math.isnan(x1) or math.isnan(x2) or math.isnan(y1) or math.isnan(y2)):
-            return True
-
-        step = 1.0
-
-        dx = x2 - x1
-        dy = y2 - y1
-        l = math.sqrt(dx**2. + dy**2.)
-        if l == 0:
-            return False
-        dx = dx / l
-        dy = dy / l
-
-        max_steps = int(l / step)
-
-        for i in range(max_steps):
-
-            # Get the next pixel
-            x = int(round(x1 + dx*i))
-            y = int(round(y1 + dy*i))
-
-            # Check if it's outside the image
-            if x < 0 or x >= len(img) or y < 0 or y >= len(img[0]):
-                return False
-
-            # Check for "hit"
-            if img[x][y] >= threshold:
-                return True
-
-        # No hits found
-        return False
-
-
 
     # Modified the localise artifact to take x, z for calculating the position of artifact in the real world in relation to the camera
     def localise_artifact(self, x, z, cls):
