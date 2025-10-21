@@ -569,7 +569,7 @@ Visualization Manager:
       Enabled: true
       Name: MarkerArray
       Namespaces:
-        artifacts: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -581,7 +581,7 @@ Visualization Manager:
       Enabled: true
       Name: Marker
       Namespaces:
-        "": true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -589,6 +589,19 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /clearing
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Marker
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /markers/grid
       Value: true
   Enabled: true
   Global Options:
