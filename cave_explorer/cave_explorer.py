@@ -88,6 +88,13 @@ class CaveExplorer(Node):
     def __init__(self):
         super().__init__('cave_explorer_node')
 
+        #####################
+        #
+        #   Tasks related params
+        #
+        #####################
+        self.add_degradation_ = False
+
         # Variables/Flags for mapping
         self.xlim_ = [0.0, 0.0]
         self.ylim_ = [0.0, 0.0]
@@ -162,7 +169,10 @@ class CaveExplorer(Node):
         # self.declare_parameter('weights_path', '/home/hazza/ros2_ws/src/cave_exploration/weights/best.pt')
         # self.declare_parameter('imgsz', 720)
         # self.declare_parameter('conf', 0.5)
-        self.weights_path = '/home/hazza/ros2_ws/src/cave_exploration/cave_explorer/weights/best_degradation_1.pt'
+        if(self.add_degradation_):
+            self.weights_path = '/home/hazza/ros2_ws/src/cave_exploration/cave_explorer/weights/best_degradation_1.pt'
+        else:
+            self.weights_path = '/home/hazza/ros2_ws/src/cave_exploration/cave_explorer/weights/best.pt'
         # self.imgsz = 720
         self.imgsz = 736
         self.conf = 0.5
@@ -194,6 +204,9 @@ class CaveExplorer(Node):
         self.transform_count_ = 0
         self.max_nodes_ = 200
 
+        self.map_reshaped_ = []
+
+        # Initialize the graph data structure
         self.graph_ = graph.Graph(self.get_logger(),
                             1,
                             self.max_nodes_,
@@ -353,19 +366,20 @@ class CaveExplorer(Node):
         self.ylim_ = [map_origin[1], map_origin[1]+map_height*map_resolution]
 
         reshaped_map = (np.array(map_msg.data).reshape(map_height,map_width))
+        self.map_reshaped_ = reshaped_map
 
         self.x_origin = map_origin[0]
         self.y_origin = map_origin[1]
         
         
-        self.current_map_ = reshaped_map*150+150
+        self.current_map_ = np.array(reshaped_map*50+51,np.uint8)
         gradient_magnitude = cv2.Laplacian(self.current_map_, cv2.CV_64F)
         gradient_magnitude = cv2.convertScaleAbs(gradient_magnitude)
 
         self.frontiers = []
         for i in range(map_height):
             for j in range(map_width):
-                if 140 < gradient_magnitude[i][j] < 170:
+                if 40 < gradient_magnitude[i][j] < 60:
                     self.frontiers.append((i,j))
 
         if self.transform_count_<10:
@@ -414,13 +428,15 @@ class CaveExplorer(Node):
         """
         # Copy the image message to a cv image
         # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
+        depth_image = self.depth_image_
 
         if len(self.depth_image_) == 0:
             return
 
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
-        image = add_dust(image,3)
-        image = motion_blur(image,3)
+        if (self.add_degradation_):
+            image = add_dust(image,3)
+            image = motion_blur(image,3)
         # self.get_logger().info(str(image))
 
         detections = []
@@ -446,22 +462,23 @@ class CaveExplorer(Node):
         # "artifact_found_" doesn't need a mutex because it's an atomic
         self.artifact_found_ = len(detections) > 0
 
-        index_ = 0
+        
         # Draw a bounding box rectangle on the image for each detection
-        for(x1, y1, x2, y2) in detections:
-            cv2.rectangle(image, (x1, y1), (x2, y2),(0, 255, 0), 5)
-            cv2.putText(image,str(r.names[labels[index_]]) , (x1, y1-5), cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 0), 3, cv2.LINE_AA)
-            index_+=1
+        if self.artifact_found_:
+            index_ = 0
+            for(x1, y1, x2, y2) in detections:
+                cv2.rectangle(image, (x1, y1), (x2, y2),(0, 255, 0), 5)
+                cv2.putText(image,str(r.names[labels[index_]]) , (x1, y1-5), cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 0), 3, cv2.LINE_AA)
+                if self.artifact_found_:
+                    # self.get_logger().info('Artifact found!')
+                    z = depth_image[round((y1+y2)/2)][round((x1+x2)/2)]
+                    if z != float('inf'):
+                        self.localise_artifact((x1+x2)/2,z,labels[index_])
+                index_+=1
 
         # Publish the image with the detection bounding boxes
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
         self.image_detections_pub_.publish(image_detection_message)
-
-        if self.artifact_found_:
-            # self.get_logger().info('Artifact found!')
-            z = self.depth_image_[int((y1+y2)/2)][int((x1+x2)/2)]
-            if z != float('inf'):
-                self.localise_artifact((x1+x2)/2,z)
 
     def check_if_in(self,point,arr):
         if len(arr) == 0:
@@ -473,16 +490,64 @@ class CaveExplorer(Node):
         return False
 
 
+    def is_occluded(self, p1, p2, threshold=90):
+        """
+        Find if two points can be joined or if there's an obstacle in between
+        Draws a line from p1 to p2
+        Stops at the first pixel that is a "hit", i.e. above the threshold
+        Returns the pixel coordinates for the first hit
+        """
+
+
+        if len(self.map_reshaped_)==0:
+            return
+
+        img = self.map_reshaped_
+        # Extract the vector
+        x1 = p1.x
+        y1 = p1.y
+        x2 = p2.x
+        y2 = p2.y
+
+        if (math.isnan(x1) or math.isnan(x2) or math.isnan(y1) or math.isnan(y2)):
+            return True
+
+        step = 1.0
+
+        dx = x2 - x1
+        dy = y2 - y1
+        l = math.sqrt(dx**2. + dy**2.)
+        if l == 0:
+            return False
+        dx = dx / l
+        dy = dy / l
+
+        max_steps = int(l / step)
+
+        for i in range(max_steps):
+
+            # Get the next pixel
+            x = int(round(x1 + dx*i))
+            y = int(round(y1 + dy*i))
+
+            # Check if it's outside the image
+            if x < 0 or x >= len(img) or y < 0 or y >= len(img[0]):
+                return False
+
+            # Check for "hit"
+            if img[x][y] >= threshold:
+                return True
+
+        # No hits found
+        return False
+
+
 
     # Modified the localise artifact to take x, z for calculating the position of artifact in the real world in relation to the camera
-    def localise_artifact(self, x, z):
+    def localise_artifact(self, x, z, cls):
     # def localise_artifact(self):
         """
-        INCOMPLETE:
-        Compute the location of the artifact
-        Save it to a list, publish rviz marker
-        This version just uses the robot location rather than the artifact location
-        You can find other examples of using RViz markers in the previous assignments template code
+        Function that localises artifacts
         """
         # Current location of the robot
         robot_pose = self.get_pose_2d()
@@ -490,11 +555,6 @@ class CaveExplorer(Node):
         if robot_pose == None:
             self.get_logger().warn(f'localise_artifact: robot_pose is None.')
             return
-        
-        # Some maths to transform the position of the artifact into 
-        # the world frame.
-        # THIS IS CURRENTLY WRONG as there might be some inconsistency
-        # between the unit of z and the unit of x,y,..
         
         x2 = z
         y2 = -(x-360)*z/self.camera_fov_
@@ -515,22 +575,25 @@ class CaveExplorer(Node):
         point.y = y_artifact_world
         point.z = 1.0
 
-        if self.check_if_in(point, self.artifact_locations_):
+        if self.check_if_in(point, self.artifact_locations_) or self.is_occluded(point, robot_pose):
             return
 
         # Save it
         self.artifact_locations_.append(point)
-        # Add point to the unvisted list if it has not been visited
-        self.unvisited_artifacts_.append(point)
 
-        # Change the state of the robot to standoff mode
-        self.standoff_state_ = True
+        # If the artifact is worth inspecting
+        if (cls in [0,1,2,3]):
+            # Add point to the unvisted list if it has not been visited
+            self.unvisited_artifacts_.append(point)
 
-        # Abort current goal if robot is not in standoff mode
-        if self.planner_type_ != PlannerType.GO_TO_LATEST_ARTIFACT:
-            self.get_logger().info('Stopping exploration')
-            if self.goal_exists_:
-                self.nav2_action_client_._cancel_goal_async(self.goal_handle_)
+            # Abort current goal if robot is not in standoff mode
+            if (self.planner_type_ != PlannerType.GO_TO_LATEST_ARTIFACT) and (self.standoff_state_==False):
+                self.get_logger().info('Stopping exploration')
+                if self.goal_exists_:
+                    self.nav2_action_client_._cancel_goal_async(self.goal_handle_)
+
+            # Change the state of the robot to standoff mode
+            self.standoff_state_ = True
 
         # Publish the markers
         self.publish_artifact_markers()
@@ -613,27 +676,7 @@ class CaveExplorer(Node):
 
         self.planner_go_to_pose2d(pose_2d)
 
-    def planner_go_to_first_artifact(self):
-        """Go to a pre-specified artifact location"""
-
-        goal_pose2d = Pose2D(
-            x = 18.1,
-            y = 6.6,
-            theta = math.pi/2
-        )
-        self.planner_go_to_pose2d(goal_pose2d)
-
-    def planner_return_home(self):
-        """Return to the origin"""
-
-        goal_pose2d = Pose2D(
-            x = 0.0,
-            y = 0.0,
-            theta = math.pi
-        )
-        self.planner_go_to_pose2d(goal_pose2d)
-
-
+    
     #
     #
     # Code section for planning 1
@@ -670,54 +713,6 @@ class CaveExplorer(Node):
         self.get_logger().info("Published new goal artifact!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.planner_go_to_pose2d(goal_pose2d)
 
-
-    def planner_random_walk(self):
-        """Go to a random location, which may be invalid"""
-
-        # Select a random location
-        goal_pose2d = Pose2D(
-            x = random.uniform(self.xlim_[0], self.xlim_[1]),
-            y = random.uniform(self.ylim_[0], self.ylim_[1]),
-            theta = random.uniform(0, 2*math.pi)
-        )
-        self.planner_go_to_pose2d(goal_pose2d)
-
-    def planner_random_goal(self):
-        """Go to a random location out of a predefined set"""
-
-        # Hand picked set of goal locations
-        random_goals = [[15.2, 2.2],
-                        [30.7, 2.2],
-                        [43.0, 11.3],
-                        [36.6, 21.9],
-                        [33.0, 30.4],
-                        [40.4, 44.3],
-                        [51.5, 37.8],
-                        [16.0, 24.1],
-                        [3.4, 33.5],
-                        [7.9, 13.8],
-                        [14.2, 37.7]]
-
-        # Select a random location
-        goal_valid = False
-        while not goal_valid:
-            idx = random.randint(0,len(random_goals)-1)
-            goal_x = random_goals[idx][0]
-            goal_y = random_goals[idx][1]
-
-            # Only accept this goal if it's within the current costmap bounds
-            if goal_x > self.xlim_[0] and goal_x < self.xlim_[1] and \
-               goal_y > self.ylim_[0] and goal_y < self.ylim_[1]:
-                goal_valid = True
-            else:
-                self.get_logger().warn(f'Goal [{goal_x}, {goal_y}] out of bounds')
-
-        goal_pose2d = Pose2D(
-            x = goal_x,
-            y = goal_y,
-            theta = random.uniform(0, 2*math.pi)
-        )
-        self.planner_go_to_pose2d(goal_pose2d)
 
     def main_loop(self):
         """
@@ -783,14 +778,6 @@ class CaveExplorer(Node):
         self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
         if self.planner_type_ == PlannerType.MOVE_FORWARDS:
             self.planner_move_forwards(10)
-        elif self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
-            self.planner_go_to_first_artifact()
-        elif self.planner_type_ == PlannerType.RETURN_HOME:
-            self.planner_return_home()
-        elif self.planner_type_ == PlannerType.RANDOM_WALK:
-            self.planner_random_walk()
-        elif self.planner_type_ == PlannerType.RANDOM_GOAL:
-            self.planner_random_goal()
         elif self.planner_type_ == PlannerType.GO_TO_FRONTIER:
             self.planner_frontier_goal()
         elif self.planner_type_ == PlannerType.GO_TO_LATEST_ARTIFACT:
