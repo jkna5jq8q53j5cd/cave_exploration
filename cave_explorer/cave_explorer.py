@@ -10,7 +10,7 @@ import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Pose, Pose2D, PoseStamped, Point
 from nav2_msgs.action import NavigateToPose
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import Image
@@ -154,6 +154,9 @@ class CaveExplorer(Node):
         # Subscribe to the map topic to get current bounds
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
 
+        # Subscribe to odom for roadmap creation
+        self.odom_sub_ = self.create_subscription(Odometry, 'odom',  self.odom_callback, 1)
+
         # YOLO declaration
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
         # self.declare_parameter('weights_path', '/home/hazza/ros2_ws/src/cave_exploration/weights/best.pt')
@@ -189,14 +192,15 @@ class CaveExplorer(Node):
 
         # Initialize the transform count variable
         self.transform_count_ = 0
+        self.max_nodes_ = 200
 
         self.graph_ = graph.Graph(self.get_logger(),
                             1,
-                            100,
+                            self.max_nodes_,
                             False,
                             True,
                             False,
-                            40,
+                            20,
                             True,
                             )
         
@@ -292,10 +296,13 @@ class CaveExplorer(Node):
         marker.color.a = 0.5
         marker.color.r = 1.0
         self.transform_map_.publish(marker)
-        self.graph_.create_distance_transform_graph(int(0.01*len(occ_grid.data)),40, distance_transform_map, occ_grid)
+            
+        self.transform_map_.publish(marker)
+        self.graph_.create_distance_transform_graph(int(0.001*len(occ_grid.data)),40, distance_transform_map, occ_grid)
         nodes,graphs = self.graph_.generate_marker_msgs()
         self.graph_marker_pub_.publish(nodes)
         self.graph_marker_pub_.publish(graphs)
+
 
         
         # jac = cv2.Laplacian(distance_transform_map, cv2.CV_64F)
@@ -386,6 +393,15 @@ class CaveExplorer(Node):
         )
         self.get_logger().info(str(res))
         return res
+
+
+    def odom_callback(self, odom_msg):
+        if self.odom_count_ <= 5:
+            return
+        self.odom_count_ = 0
+        pose = self.get_pose_2d()
+        self.graph_.nodes_.append(Point(x=pose.x, y=pose.y))
+        
 
 
     def image_callback(self, image_msg):
@@ -564,6 +580,7 @@ class CaveExplorer(Node):
         self.goal_exists_ = True
         if not goal_handle.accepted:
             self.get_logger().error('Goal rejected')
+            self.ready_for_next_goal_ = True
             return
 
         # Goal accepted: get result when it's completed
@@ -734,7 +751,7 @@ class CaveExplorer(Node):
             return
         
         if (self.timer_count_ < 40) and (self.planner_type_ == PlannerType.GO_TO_LATEST_ARTIFACT):
-                self.get_logger().info('Inspecting artifact.. Please wait..')
+                # self.get_logger().info('Inspecting artifact.. Please wait..')
                 self.timer_count_ += 1
                 return
 

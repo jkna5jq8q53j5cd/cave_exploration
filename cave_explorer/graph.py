@@ -56,9 +56,9 @@ class Graph:
         self.marker_start_.pose.orientation.y = 0.0
         self.marker_start_.pose.orientation.z = 0.0
         self.marker_start_.pose.orientation.w = 1.0
-        self.marker_start_.scale.x = .2
-        self.marker_start_.scale.y = .2
-        self.marker_start_.scale.z = .2
+        self.marker_start_.scale.x = .6
+        self.marker_start_.scale.y = .6
+        self.marker_start_.scale.z = .6
         self.marker_start_.color.a = 1.0
         self.marker_start_.color.r = 1.0
         self.marker_start_.color.g = 1.0
@@ -125,14 +125,16 @@ class Graph:
             self.marker_edges_.scale.y = 0.025
             self.marker_edges_.scale.z = 0.025
         else:
-            self.marker_edges_.scale.x = 0.008
-            self.marker_edges_.scale.y = 0.008
-            self.marker_edges_.scale.z = 0.008
+            self.marker_edges_.scale.x = 0.025
+            self.marker_edges_.scale.y = 0.025
+            self.marker_edges_.scale.z = 0.025
         self.marker_edges_.color.a = 1.0
         self.marker_edges_.color.r = 1.0
         self.marker_edges_.color.g = 1.0
         self.marker_edges_.color.b = 0.4
         self.marker_edges_.colors = []
+
+        self.prm_num_nodes_ = prm_num_nodes
         
 
     def create_distance_transform_graph(self, num_nodes, distance_threshold, distance_transform_map, occ_grid):
@@ -141,19 +143,18 @@ class Graph:
         # Create nodes
         # hint: it will be similar to the create_PRM method above
 
-        idx = 0
+        if (len(self.nodes_)>=self.prm_num_nodes_):
+            self.nodes_ = self.nodes_[num_nodes:self.prm_num_nodes_]
 
-        ####################
-        ## YOUR CODE HERE ##
-        ## Task 10        ##
-        ####################
+        idx = 0
 
         grid_img = (np.array(occ_grid.data).reshape(occ_grid.info.height,occ_grid.info.width))
         self.origin_x = occ_grid.info.origin.position.x
         self.origin_y = occ_grid.info.origin.position.y
 
-        while len(self.nodes_) < num_nodes:
 
+        # while len(self.nodes_) < num_nodes:
+        while idx < num_nodes:
             x = random.randint(5, occ_grid.info.height-6)
             y = random.randint(5, occ_grid.info.width-6)
             occupied = (grid_img[x][y]==100)
