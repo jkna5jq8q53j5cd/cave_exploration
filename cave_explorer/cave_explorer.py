@@ -23,6 +23,8 @@ from ultralytics import YOLO
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 
+from . import graph
+
 
 def wrap_angle(angle):
     """Function to wrap an angle between 0 and 2*Pi"""
@@ -188,6 +190,18 @@ class CaveExplorer(Node):
         # Initialize the transform count variable
         self.transform_count_ = 0
 
+        self.graph_ = graph.Graph(self.get_logger(),
+                            1,
+                            100,
+                            False,
+                            True,
+                            False,
+                            40,
+                            True,
+                            )
+        
+        self.graph_marker_pub_ = self.create_publisher(Marker, 'markers/grid',1)
+
         self.transform_map_ = self.create_publisher(Marker, 'clearing', 1)
 
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
@@ -229,6 +243,7 @@ class CaveExplorer(Node):
     def do_distance_transform(self, map, rows, cols):
 
         distance_transform_map = np.full((rows, cols), 0, dtype=np.uint8)
+        occ_grid = self.occ_grid
         map[map==-1] = 100
 
         # First pass
@@ -277,6 +292,11 @@ class CaveExplorer(Node):
         marker.color.a = 0.5
         marker.color.r = 1.0
         self.transform_map_.publish(marker)
+        self.graph_.create_distance_transform_graph(int(0.01*len(occ_grid.data)),40, distance_transform_map, occ_grid)
+        nodes,graphs = self.graph_.generate_marker_msgs()
+        self.graph_marker_pub_.publish(nodes)
+        self.graph_marker_pub_.publish(graphs)
+
         
         # jac = cv2.Laplacian(distance_transform_map, cv2.CV_64F)
         # jac = cv2.convertScaleAbs(jac)
@@ -313,6 +333,7 @@ class CaveExplorer(Node):
         """New map received, so update x and y limits"""
 
         # Extract data from message
+        self.occ_grid = map_msg
         map_origin = [map_msg.info.origin.position.x, 
                       map_msg.info.origin.position.y]
         map_resolution = map_msg.info.resolution
