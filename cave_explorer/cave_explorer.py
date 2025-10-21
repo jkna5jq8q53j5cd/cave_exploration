@@ -182,7 +182,7 @@ class CaveExplorer(Node):
         # Calculate the f of the camera
         self.camera_fov_ = 207.8449215
 
-        # Clump all points within this radius into 1 point
+        # Clump all artifacts within this radius into 1 point
         self.clump_radius_ = 3
 
         # Initialize frontier
@@ -217,6 +217,10 @@ class CaveExplorer(Node):
                             True,
                             )
         
+        self.trial_threshold_ = 5
+        self.trial_list_ = []
+        self.trial_num_ = []
+
         self.graph_marker_pub_ = self.create_publisher(Marker, 'markers/grid',1)
 
         self.transform_map_ = self.create_publisher(Marker, 'clearing', 1)
@@ -411,6 +415,7 @@ class CaveExplorer(Node):
 
     def odom_callback(self, odom_msg):
         if self.odom_count_ <= 5:
+            self.odom_count_+=1
             return
         self.odom_count_ = 0
         pose = self.get_pose_2d()
@@ -428,12 +433,12 @@ class CaveExplorer(Node):
         """
         # Copy the image message to a cv image
         # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
-        depth_image = self.depth_image_
 
         if len(self.depth_image_) == 0:
             return
 
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
+        depth_image = self.depth_image_
         if (self.add_degradation_):
             image = add_dust(image,3)
             image = motion_blur(image,3)
@@ -482,12 +487,12 @@ class CaveExplorer(Node):
 
     def check_if_in(self,point,arr):
         if len(arr) == 0:
-            return False
-        for i in arr:
+            return False, -1
+        for idx,i in enumerate(arr):
             dist = math.sqrt((i.x-point.x)**2+(i.y-point.y)**2)
             if dist < self.clump_radius_:
-                return True
-        return False
+                return True, idx
+        return False, -1
 
 
     def is_occluded(self, p1, p2, threshold=90):
@@ -574,9 +579,27 @@ class CaveExplorer(Node):
         point.x = x_artifact_world
         point.y = y_artifact_world
         point.z = 1.0
-
-        if self.check_if_in(point, self.artifact_locations_) or self.is_occluded(point, robot_pose):
+        exist, idx_0 = self.check_if_in(point, self.trial_list_)
+        exist_artifact, idx_1 = self.check_if_in(point, self.artifact_locations_)
+        if exist_artifact:
             return
+        elif exist:
+            self.trial_num_[idx_0] += 1
+            if self.trial_num_[idx_0] <= self.trial_threshold_:
+                return
+        else:
+            self.trial_list_.append(point)
+            self.trial_num_.append(1)
+            return
+        
+        trial_list = []
+        trial_num = []
+        for idx, i in enumerate(self.trial_num_,start = 0):
+            if i >= 5:
+                trial_list.append(self.trial_list_[idx])
+                trial_num.append(i)
+        self.trial_list_ = trial_list
+        self.trial_num_ = trial_num
 
         # Save it
         self.artifact_locations_.append(point)
@@ -687,11 +710,11 @@ class CaveExplorer(Node):
 
         random_frontier = random.choice(self.frontiers)
         goal_pose2d = Pose2D(
-            x = random_frontier[1]*self.resolution,
-            y = random_frontier[0]*self.resolution,
+            x = random_frontier[1]*self.resolution + self.x_origin,
+            y = random_frontier[0]*self.resolution + self.y_origin,
             theta = math.pi
         )
-        self.get_logger().info("Published new goal frontier!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        # self.get_logger().info("Published new goal frontier!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.planner_go_to_pose2d(goal_pose2d)
 
     # Function that publishes the artifact goal
@@ -710,7 +733,7 @@ class CaveExplorer(Node):
             theta = math.pi #TBC
         )
         goal_pose2d = self.straight_line(goal_pose2d,self.standoff_distance_)
-        self.get_logger().info("Published new goal artifact!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        # self.get_logger().info("Published new goal artifact!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.planner_go_to_pose2d(goal_pose2d)
 
 
@@ -775,7 +798,7 @@ class CaveExplorer(Node):
         #######################################################
         # Execute the planner by calling the relevant method
         # Add your own planners here!
-        self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
+        # self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
         if self.planner_type_ == PlannerType.MOVE_FORWARDS:
             self.planner_move_forwards(10)
         elif self.planner_type_ == PlannerType.GO_TO_FRONTIER:
